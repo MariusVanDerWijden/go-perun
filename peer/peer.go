@@ -176,6 +176,14 @@ func (p *Peer) Close() error {
 	return nil
 }
 
+// Subscribe returns a single-peer receiver on this peer with the given
+// predicate. It is a convenience method which creates a subscriber and
+// subscribes the peer in one step.
+func (p *Peer) Subscribe(predicate func(wire.Msg) bool) (*Receiver, error) {
+	rec := NewReceiver()
+	return rec, rec.Subscribe(p, predicate)
+}
+
 // newPeer creates a new peer from a peer address and connection.
 func newPeer(addr Address, conn Conn, closeWork func(*Peer), _ Dialer) *Peer {
 
