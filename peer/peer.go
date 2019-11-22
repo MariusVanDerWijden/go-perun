@@ -207,3 +207,8 @@ func newPeer(addr Address, conn Conn, closeWork func(*Peer), _ Dialer) *Peer {
 
 	return p
 }
+
+// String returns the peer's address string
+func (p *Peer) String() string {
+	return p.PerunAddress.String()
+}
