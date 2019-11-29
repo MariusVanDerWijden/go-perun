@@ -7,6 +7,7 @@ package client
 import (
 	"github.com/pkg/errors"
 
+	"perun.network/go-perun/channel"
 	"perun.network/go-perun/log"
 	"perun.network/go-perun/peer"
 	"perun.network/go-perun/pkg/sync"
@@ -18,15 +19,22 @@ type Client struct {
 	id          peer.Identity
 	peers       *peer.Registry
 	propHandler ProposalHandler
+	funder      channel.Funder
 	log         log.Logger // structured logger for this client
 
 	sync.Closer
 }
 
-func New(id peer.Identity, dialer peer.Dialer, propHandler ProposalHandler) *Client {
+func New(
+	id peer.Identity,
+	dialer peer.Dialer,
+	propHandler ProposalHandler,
+	funder channel.Funder,
+) *Client {
 	c := &Client{
 		id:          id,
 		propHandler: propHandler,
+		funder:      funder,
 		log:         log.WithField("client", id.Address),
 	}
 	c.peers = peer.NewRegistry(c.subscribePeer, dialer)
