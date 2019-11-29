@@ -11,6 +11,7 @@ import (
 	"perun.network/go-perun/log"
 	"perun.network/go-perun/peer"
 	"perun.network/go-perun/pkg/sync/atomic"
+	"perun.network/go-perun/wallet"
 
 	wire "perun.network/go-perun/wire/msg"
 )
@@ -103,4 +104,25 @@ func (c *Client) logPeer(p *peer.Peer) log.Logger {
 
 func (c *Client) logChan(id channel.ID) log.Logger {
 	return c.log.WithField("channel", id)
+}
+
+// getPeers gets all peers from the registry for the provided addresses,
+// skipping the own peer, if present in the list.
+func (c *Client) getPeers(addrs []peer.Address) []*peer.Peer {
+	idx := wallet.IndexOfAddr(addrs, c.id.Address())
+	l := len(addrs)
+	if idx != -1 {
+		l--
+	}
+
+	peers := make([]*peer.Peer, l)
+	for i, a := range addrs {
+		if idx == -1 || i < idx {
+			peers[i] = c.peers.Get(a)
+		} else if i > idx {
+			peers[i-1] = c.peers.Get(a)
+		}
+	}
+
+	return peers
 }
