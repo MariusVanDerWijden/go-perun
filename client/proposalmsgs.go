@@ -23,7 +23,7 @@ import (
 func init() {
 	msg.RegisterDecoder(msg.ChannelProposal,
 		func(r io.Reader) (msg.Msg, error) {
-			var m ChannelProposal
+			var m ChannelProposalReq
 			return &m, m.Decode(r)
 		})
 	msg.RegisterDecoder(msg.ChannelProposalAcc,
@@ -42,26 +42,40 @@ func init() {
 // a channel.
 type SessionID = [32]byte
 
-// ChannelProposal contains all data necessary to propose a new
-// channel to a given set of peers.
+// ChannelProposalReq is the wire message that is derived from the
+// ChannelProposal.
 //
-// The type implements the channel proposal messages from the Multi-Party
-// Channel Proposal Protocol (MPCPP).
-type ChannelProposal struct {
+// ChannelProposalReq implements the channel proposal messages from the
+// Multi-Party Channel Proposal Protocol (MPCPP).
+type ChannelProposalReq struct {
 	ChallengeDuration uint64
 	Nonce             *big.Int
 	ParticipantAddr   wallet.Address
 	AppDef            wallet.Address
 	InitData          channel.Data
 	InitBals          *channel.Allocation
-	Parts             []wallet.Address
+	PeerAddrs         []wallet.Address
 }
 
-func (ChannelProposal) Type() msg.Type {
+// AsReq returns a shallow copy of the ChannelProposal as a ChannelProposalReq,
+// i.e., as a wire message.
+func (c *ChannelProposal) AsReq() *ChannelProposalReq {
+	return &ChannelProposalReq{
+		ChallengeDuration: c.ChallengeDuration,
+		Nonce:             c.Nonce,
+		ParticipantAddr:   c.Account.Address(),
+		AppDef:            c.AppDef,
+		InitData:          c.InitData,
+		InitBals:          c.InitBals,
+		PeerAddrs:         c.PeerAddrs,
+	}
+}
+
+func (ChannelProposalReq) Type() msg.Type {
 	return msg.ChannelProposal
 }
 
-func (c ChannelProposal) Encode(w io.Writer) error {
+func (c ChannelProposalReq) Encode(w io.Writer) error {
 	if err := wire.Encode(w, c.ChallengeDuration, c.Nonce); err != nil {
 		return err
 	}
@@ -70,18 +84,18 @@ func (c ChannelProposal) Encode(w io.Writer) error {
 		return err
 	}
 
-	if len(c.Parts) > math.MaxInt32 {
+	if len(c.PeerAddrs) > math.MaxInt32 {
 		return errors.Errorf(
 			"expected maximum number of participants %d, got %d",
-			math.MaxInt32, len(c.Parts))
+			math.MaxInt32, len(c.PeerAddrs))
 	}
 
-	numParts := int32(len(c.Parts))
+	numParts := int32(len(c.PeerAddrs))
 	if err := wire.Encode(w, numParts); err != nil {
 		return err
 	}
-	for i := range c.Parts {
-		if err := c.Parts[i].Encode(w); err != nil {
+	for i := range c.PeerAddrs {
+		if err := c.PeerAddrs[i].Encode(w); err != nil {
 			return errors.Errorf("error encoding participant %d", i)
 		}
 	}
@@ -89,7 +103,7 @@ func (c ChannelProposal) Encode(w io.Writer) error {
 	return nil
 }
 
-func (c *ChannelProposal) Decode(r io.Reader) (err error) {
+func (c *ChannelProposalReq) Decode(r io.Reader) (err error) {
 	if err := wire.Decode(r, &c.ChallengeDuration, &c.Nonce); err != nil {
 		return err
 	}
@@ -125,9 +139,9 @@ func (c *ChannelProposal) Decode(r io.Reader) (err error) {
 			"expected at least 2 participants, got %d", numParts)
 	}
 
-	c.Parts = make([]wallet.Address, numParts)
-	for i := 0; i < len(c.Parts); i++ {
-		if c.Parts[i], err = wallet.DecodeAddress(r); err != nil {
+	c.PeerAddrs = make([]wallet.Address, numParts)
+	for i := 0; i < len(c.PeerAddrs); i++ {
+		if c.PeerAddrs[i], err = wallet.DecodeAddress(r); err != nil {
 			return err
 		}
 	}
@@ -135,13 +149,13 @@ func (c *ChannelProposal) Decode(r io.Reader) (err error) {
 	return nil
 }
 
-func (c ChannelProposal) SessID() (sid SessionID) {
+func (c ChannelProposalReq) SessID() (sid SessionID) {
 	hasher := sha3.New256()
 	if err := wire.Encode(hasher, c.Nonce); err != nil {
 		log.Panicf("session ID nonce encoding: %v", err)
 	}
 
-	for _, p := range c.Parts {
+	for _, p := range c.PeerAddrs {
 		if err := wire.Encode(hasher, p); err != nil {
 			log.Panicf("session ID participant encoding: %v", err)
 		}
@@ -167,18 +181,18 @@ func (c ChannelProposal) SessID() (sid SessionID) {
 // * InitBals match the dimension of Parts (TODO: check is valid)
 // * No locked sub-allocations
 // * non-zero ChallengeDuration
-func (c ChannelProposal) Valid() error {
+func (c ChannelProposalReq) Valid() error {
 	if c.ParticipantAddr == nil || c.InitBals == nil || c.Nonce == nil {
 		return errors.New("invalid nil fields")
 	} else if c.ChallengeDuration == 0 {
 		return errors.New("challenge duration must not be zero")
-	} else if len(c.Parts) < 2 || len(c.Parts) > channel.MaxNumParts {
+	} else if len(c.PeerAddrs) < 2 || len(c.PeerAddrs) > channel.MaxNumParts {
 		return errors.New("invalid number of participants")
 	} else if err := c.InitBals.Valid(); err != nil {
 		return err
 	} else if len(c.InitBals.Locked) > 0 {
 		return errors.New("initial allocation cannot have locked funds")
-	} else if len(c.InitBals.OfParts) != len(c.Parts) {
+	} else if len(c.InitBals.OfParts) != len(c.PeerAddrs) {
 		return errors.New("wrong dimension of initial balances")
 	}
 	return nil
