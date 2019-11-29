@@ -22,30 +22,42 @@ import (
 // executing the channel update and dispute protocols.
 type Channel struct {
 	perunsync.Closer
+	log log.Logger
 
 	conn    channelConn
 	machine channel.StateMachine
 	machMtx sync.RWMutex
 }
 
-func newChannel(conn channelConn, acc wallet.Account, params channel.Params) (*Channel, error) {
+func newChannel(acc wallet.Account, peers []*peer.Peer, params channel.Params) (*Channel, error) {
 	machine, err := channel.NewStateMachine(acc, params)
 	if err != nil {
 		return nil, errors.WithMessage(err, "creating state machine")
 	}
 
+	// bundle peers into channel connection
+	conn, err := newChannelConn(params.ID(), peers, machine.Idx())
+	if err != nil {
+		return nil, errors.WithMessagef(err, "setting up channel connection")
+	}
+
 	return &Channel{
-		conn:    conn,
+		log:     log.WithField("channel", params.ID), // default to global field logger
+		conn:    *conn,
 		machine: *machine,
 	}, nil
 }
 
+func (c *Channel) setLogger(l log.Logger) {
+	c.log = l
+}
+
 // init brings the state machine into the InitSigning phase. It is not callable
 // by the user since the Client initializes the channel controller.
-func (c *Channel) init(initBals channel.Allocation, initData channel.Data) error {
+func (c *Channel) init(initBals *channel.Allocation, initData channel.Data) error {
 	c.machMtx.Lock()
 	defer c.machMtx.Unlock()
-	return c.machine.Init(initBals, initData)
+	return c.machine.Init(*initBals, initData)
 }
 
 // A channelConn bundles a peer receiver and broadcaster. It is an abstraction
