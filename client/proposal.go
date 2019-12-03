@@ -199,31 +199,12 @@ func (c *Client) handleChannelProposal(p *peer.Peer, req *ChannelProposalReq) {
 	}
 }
 
-func (c *Client) exchangeChannelProposal(
+func (c *Client) exchangeTwoPartyProposal(
 	ctx context.Context,
 	proposal *ChannelProposalReq,
-) (*channelProposalResult, error) {
-	if err := c.validTwoPartyProposal(proposal, 0, proposal.PeerAddrs[1]); err != nil {
-		return nil, errors.WithMessage(err, "invalid channel proposal")
-	}
-
-	numParts := len(proposal.PeerAddrs)
-	if numParts != 2 {
-		return nil, errors.Errorf(
-			"Expected exactly two peers in proposal, got %d", numParts)
-	}
-
+) ([]wallet.Address, error) {
+	// TODO: Get will return an error soon
 	p := c.peers.Get(proposal.PeerAddrs[1])
-
-	app, err := channel.AppFromDefinition(proposal.AppDef)
-	if err != nil {
-		return nil, errors.WithMessagef(
-			err, "Error when getting app at address %v", proposal.AppDef)
-	}
-
-	// begin communication with peer
-	receiver := peer.NewReceiver()
-	defer receiver.Close()
 
 	sessID := proposal.SessID()
 	isResponse := func(m wire.Msg) bool {
@@ -232,9 +213,11 @@ func (c *Client) exchangeChannelProposal(
 			(m.Type() == wire.ChannelProposalRej &&
 				m.(*ChannelProposalRej).SessID == sessID)
 	}
+	receiver := peer.NewReceiver()
+	defer receiver.Close()
+
 	if err := receiver.Subscribe(p, isResponse); err != nil {
-		return nil, errors.WithMessagef(
-			err, "subscription error with peer %v", p.PerunAddress)
+		return nil, errors.WithMessagef(err, "subscribing peer %v", p)
 	}
 
 	if err := p.Send(ctx, proposal); err != nil {
@@ -245,23 +228,12 @@ func (c *Client) exchangeChannelProposal(
 	if rawResponse == nil {
 		return nil, errors.New("timeout when waiting for proposal response")
 	}
-	if rejection, ok := rawResponse.(*ChannelProposalRej); ok {
-		return nil, errors.New(rejection.Reason)
+	if rej, ok := rawResponse.(*ChannelProposalRej); ok {
+		return nil, errors.Errorf("channel proposal rejected: %v", rej.Reason)
 	}
 
-	approval := rawResponse.(*ChannelProposalAcc)
-	partAddrs := []wallet.Address{
-		proposal.ParticipantAddr, approval.ParticipantAddr}
-	params, err := channel.NewParams(
-		proposal.ChallengeDuration, partAddrs, app.Def(), proposal.Nonce,
-	)
-	if err != nil {
-		return nil, errors.WithMessage(
-			err, "error when computing params from channel proposal")
-	}
-
-	return &channelProposalResult{
-		params, proposal.InitData, proposal.InitBals}, nil
+	acc := rawResponse.(*ChannelProposalAcc) // this is safe because of predicate isResponse
+	return []wallet.Address{proposal.ParticipantAddr, acc.ParticipantAddr}, nil
 }
 
 // validTwoPartyProposal checks that the proposal is valid in the two-party
