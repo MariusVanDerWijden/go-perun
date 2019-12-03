@@ -11,8 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	_ "perun.network/go-perun/backend/sim/channel" // backend init
-	_ "perun.network/go-perun/backend/sim/wallet"  // backend init
+	_ "perun.network/go-perun/backend/sim/channel"        // backend init
+	simwallet "perun.network/go-perun/backend/sim/wallet" // backend init // TODO: simwallet->wallettest after #203
 	"perun.network/go-perun/channel/test"
 	"perun.network/go-perun/client"
 	"perun.network/go-perun/wallet"
@@ -80,6 +80,16 @@ func TestChannelProposalReqSessID(t *testing.T) {
 	c6 := original
 	c6.PeerAddrs = fake.PeerAddrs
 	assert.NotEqual(t, s, c6.SessID())
+}
+
+func TestChannelProposal_AsReqAsProp(t *testing.T) {
+	rng := rand.New(rand.NewSource(7))
+	acc := simwallet.NewRandomAccount(rng)
+	prop := newRandomChannelProposalReq(rng).AsProp(acc)
+	req := prop.AsReq()
+	assert.True(t, req.ParticipantAddr.Equals(acc.Address()))
+	prop2 := req.AsProp(acc)
+	assert.Equal(t, prop2, prop)
 }
 
 func newRandomChannelProposalReq(rng *rand.Rand) *client.ChannelProposalReq {
