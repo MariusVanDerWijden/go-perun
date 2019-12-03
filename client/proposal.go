@@ -295,13 +295,12 @@ func (c *Client) validTwoPartyProposal(
 // validity check on the proposal, so make sure to only paste valid proposals.
 func (c *Client) setupChannel(
 	ctx context.Context,
-	prop *ChannelProposalReq,
+	prop *ChannelProposal,
 	parts []wallet.Address, // result of the MPCPP on prop
-	account wallet.Account, // our account
 ) (*Channel, error) {
 	params := channel.NewParamsUnsafe(prop.ChallengeDuration, parts, prop.AppDef, prop.Nonce)
 
-	ch, err := newChannel(account, c.getPeers(parts), *params)
+	ch, err := newChannel(prop.Account, c.getPeers(parts), *params)
 	if err != nil {
 		return nil, err
 	}
