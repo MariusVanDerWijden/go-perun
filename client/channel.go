@@ -52,6 +52,10 @@ func (c *Channel) setLogger(l log.Logger) {
 	c.log = l
 }
 
+func (c *Channel) ID() channel.ID {
+	return c.machine.ID()
+}
+
 // init brings the state machine into the InitSigning phase. It is not callable
 // by the user since the Client initializes the channel controller.
 func (c *Channel) init(initBals *channel.Allocation, initData channel.Data) error {
