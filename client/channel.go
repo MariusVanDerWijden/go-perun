@@ -75,7 +75,7 @@ type channelConn struct {
 // newChannelConn creates a new channel connection for the given channel ID. It
 // subscribes on all peers to all messages regarding this channel. The order of
 // the peers is important: it must match their position in the channel
-// participant slice, or one less if their index is abour our index, since we
+// participant slice, or one less if their index is above our index, since we
 // are not part of the peer slice.
 func newChannelConn(id channel.ID, peers []*peer.Peer, idx channel.Index) (*channelConn, error) {
 	forThisChannel := func(m wire.Msg) bool {
@@ -96,7 +96,7 @@ func newChannelConn(id channel.ID, peers []*peer.Peer, idx channel.Index) (*chan
 			peerIdx[peer]++
 		}
 		if err := rec.Subscribe(peer, forThisChannel); err != nil {
-			return nil, errors.WithMessagef(err, "subscribing peer #%d (%v)", i, peer)
+			return nil, errors.WithMessagef(err, "subscribing peer[%d] (%v)", i, peer)
 		}
 	}
 
@@ -111,13 +111,13 @@ func (c *channelConn) send(ctx context.Context, msg wire.Msg) error {
 	return c.b.Send(ctx, msg)
 }
 
-func (c *channelConn) recv(ctx context.Context) (channel.Index, wire.Msg) {
+func (c *channelConn) recv(ctx context.Context) (channel.Index, ChannelMsg) {
 	peer, msg := c.r.Next(ctx)
 	idx, ok := c.peerIdx[peer]
 	if !ok {
 		log.Panicf("channel connection received message from unknown peer %v", peer)
 	}
-	return idx, msg
+	return idx, msg.(ChannelMsg) // safe by the predicate
 }
 
 func (c *channelConn) close() {
