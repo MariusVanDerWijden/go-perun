@@ -6,10 +6,10 @@ package client
 
 import (
 	"context"
-	"sync/atomic"
 
 	"perun.network/go-perun/channel"
 	"perun.network/go-perun/log"
+	"perun.network/go-perun/pkg/sync/atomic"
 )
 
 type (
@@ -27,60 +27,45 @@ type (
 	}
 
 	UpdateResponder struct {
-		accept chan ctxUpdateAcc
+		accept chan context.Context
 		reject chan ctxUpdateRej
 		err    chan error // return error
-		called int32      // atomically accessed state
-	}
-
-	// The following type is only needed to bundle the ctx and sig of
-	// UpdateResponder.Accept() into a single struct so that they can be sent over
-	// a channel
-	ctxUpdateAcc struct {
-		ctx context.Context
-		sig channel.Sig
+		called atomic.Bool
 	}
 
 	// The following type is only needed to bundle the ctx and channel update
 	// rejection of UpdateResponder.Reject() into a single struct so that they can
 	// be sent over a channel
 	ctxUpdateRej struct {
-		ctx context.Context
-		ChannelUpdateRej
+		ctx    context.Context
+		reason string
 	}
 )
 
 func newUpdateResponder() *UpdateResponder {
 	return &UpdateResponder{
-		accept: make(chan ctxUpdateAcc),
+		accept: make(chan context.Context),
 		reject: make(chan ctxUpdateRej),
-		err:    make(chan error),
+		err:    make(chan error, 1),
 	}
 }
 
 // Accept lets the user signal that they want to accept the channel update.
-func (r *UpdateResponder) Accept(ctx context.Context, sig channel.Sig) error {
-	if !atomic.CompareAndSwapInt32(&r.called, 0, 1) {
+func (r *UpdateResponder) Accept(ctx context.Context) error {
+	if !r.called.TrySet() {
 		log.Panic("multiple calls on channel update responder")
 	}
-	defer r.close()
-	r.accept <- ctxUpdateAcc{ctx, sig}
+	r.accept <- ctx
 	return <-r.err
 }
 
 // Reject lets the user signal that they reject the channel update.
-func (r *UpdateResponder) Reject(ctx context.Context, rej ChannelUpdateRej) error {
-	if !atomic.CompareAndSwapInt32(&r.called, 0, 1) {
+func (r *UpdateResponder) Reject(ctx context.Context, reason string) error {
+	if !r.called.TrySet() {
 		log.Panic("multiple calls on channel update responder")
 	}
-	defer r.close()
-	r.reject <- ctxUpdateRej{ctx, rej}
+	r.reject <- ctxUpdateRej{ctx, reason}
 	return <-r.err
 }
 
-// called by Accept or Reject once one of them has returned
-func (r *UpdateResponder) close() {
-	close(r.accept)
-	close(r.reject)
-	close(r.err)
 }
