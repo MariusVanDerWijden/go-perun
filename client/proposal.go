@@ -331,5 +331,7 @@ func (c *Client) setupChannel(
 		return ch, errors.WithMessage(err, "error while funding channel")
 	}
 
+	ch.machine.SetFunded()
+
 	return ch, nil
 }
