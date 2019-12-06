@@ -280,7 +280,7 @@ func (m *machine) expect(tr PhaseTransition) error {
 // state is valid. The following checks are run:
 // * matching channel ids
 // * no transition from final state
-// * version increase by 1
+// * version increase by 1 from current or, if present, staging state (alternative update)
 // * preservation of balances
 // A StateMachine will additionally check the validity of the app-specific
 // transition whereas an ActionMachine checks each Action as being valid.
@@ -292,12 +292,22 @@ func (m *machine) validTransition(to *State) error {
 		return errors.New("new state's App dosen't match")
 	}
 
-	if m.currentTX.IsFinal == true {
-		return NewStateTransitionError(m.params.id, "cannot advance final state")
-	}
+	if m.phase == Acting && m.stagingTX.State == nil { // normal update
+		if m.currentTX.IsFinal == true {
+			return NewStateTransitionError(m.params.id, "cannot advance final state")
+		}
 
-	if m.currentTX.Version+1 != to.Version {
-		return NewStateTransitionError(m.params.id, "version must increase by one")
+		if m.currentTX.Version+1 != to.Version {
+			return NewStateTransitionError(m.params.id, "version must increase by one")
+		}
+	} else if m.phase == Signing && m.stagingTX.State != nil {
+		if m.stagingTX.Version+1 != to.Version { // update alternative
+			return NewStateTransitionError(m.params.id,
+				"version of alternative must increase by one")
+		}
+	} else {
+		log.Panicf("machine in phase %v and (staging state == nil) = %t",
+			m.phase, m.stagingTX.State == nil)
 	}
 
 	if eq, err := equalSum(m.currentTX.Allocation, to.Allocation); err != nil {

@@ -7,6 +7,7 @@ package channel
 import (
 	"github.com/pkg/errors"
 
+	"perun.network/go-perun/log"
 	"perun.network/go-perun/wallet"
 )
 
@@ -86,6 +87,23 @@ func (m *StateMachine) CheckUpdate(
 	} else if !ok {
 		return errors.Errorf("invalid signature", sigIdx)
 	}
+	return nil
+}
+
+// UpdateAlternative replaces the staging state with the given alternative state.
+// It is checked whether this is a valid transition.
+func (m *StateMachine) UpdateAlternative(altState *State, actor Index) error {
+	if err := m.expect(PhaseTransition{Signing, Signing}); err != nil {
+		return err
+	}
+	if m.stagingTX.State == nil {
+		log.Panic("nil State in Signing phase")
+	}
+
+	if err := m.validTransition(altState, actor); err != nil {
+		return err
+	}
+	m.setStaging(Signing, altState)
 	return nil
 }
 
