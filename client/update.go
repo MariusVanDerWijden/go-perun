@@ -7,6 +7,8 @@ package client
 import (
 	"context"
 
+	"github.com/pkg/errors"
+
 	"perun.network/go-perun/channel"
 	"perun.network/go-perun/log"
 	"perun.network/go-perun/pkg/sync/atomic"
@@ -68,4 +70,53 @@ func (r *UpdateResponder) Reject(ctx context.Context, reason string) error {
 	return <-r.err
 }
 
+func (c *Channel) Update(ctx context.Context, up ChannelUpdate) error {
+	if err := c.validTwoPartyUpdate(up, c.machine.Idx()); err != nil {
+		return err
+	}
+
+	c.machMtx.Lock() // lock machine while update is in progress
+	defer c.machMtx.Unlock()
+
+	if err := c.machine.Update(up.State, up.ActorIdx); err != nil {
+		return errors.WithMessage(err, "updating machine")
+	}
+	sig, err := c.machine.Sig()
+	if err != nil {
+		if derr := c.machine.DiscardUpdate(); derr != nil {
+			// this should be impossible
+			return errors.WithMessagef(derr,
+				"signing failed: %v, then discarding update failed", err)
+		}
+		return errors.WithMessage(err, "signing updated state")
+	}
+
+	msgUpAcc := &msgChannelUpdateAcc{
+		ChannelID: c.ID(),
+		Version:   up.State.Version,
+		Sig:       sig,
+	}
+	return c.conn.send(ctx, msgUpAcc)
+
+	// TODO: receive update c.conn.recvUpdateRes(ctx, version)
+	// - on Accept, AddSig and EnableUpdate
+	// - on Reject, DiscardUpdate
+	//if err := c.machine.AddSig(pidx, acc.Sig); err != nil {
+	//return errors.WithMessage(err, "adding peer signature")
+	//}
+}
+
+// validTwoPartyUpdate performs additional protocol-dependent checks on the
+// proposed update that go beyond the machine's checks:
+// * actor and signer must be the same
+// * no locked sub-allocations
+func (c *Channel) validTwoPartyUpdate(up ChannelUpdate, sigIdx channel.Index) error {
+	if up.ActorIdx != sigIdx {
+		return errors.Errorf(
+			"Currently, only update proposals with the proposing peer as actor are allowed.")
+	}
+	if len(up.State.Locked) > 0 {
+		return errors.New("no locked sub-allocations allowed")
+	}
+	return nil
 }
