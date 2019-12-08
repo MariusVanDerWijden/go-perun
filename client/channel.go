@@ -79,24 +79,25 @@ func (c *Channel) initExchangeSigsAndEnable(ctx context.Context) error {
 
 	send := make(chan error)
 	go func() {
-		send <- c.conn.send(ctx, &msgChannelUpdateAcc{
+		send <- c.conn.Send(ctx, &msgChannelUpdateAcc{
 			ChannelID: c.ID(),
 			Version:   0,
 			Sig:       sig,
 		})
 	}()
 
-	pidx, cm := c.conn.nextUpdateRes(ctx)
+	resRecv, err := c.conn.NewUpdateResRecv(0)
+	if err != nil {
+		return errors.WithMessage(err, "creating update response receiver")
+	}
+	defer resRecv.Close()
+
+	pidx, cm := resRecv.Next(ctx)
 	acc, ok := cm.(*msgChannelUpdateAcc)
 	if !ok {
 		return errors.Errorf(
 			"received unexpected message of type (%T) from peer: %v",
 			cm, cm)
-	}
-	if acc.Version != 0 {
-		return errors.Errorf(
-			"received signature on unexpected version %d from peer",
-			acc.Version)
 	}
 
 	if err := c.machine.AddSig(pidx, acc.Sig); err != nil {
