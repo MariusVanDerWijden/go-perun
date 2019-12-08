@@ -62,9 +62,9 @@ func (c *Channel) ID() channel.ID {
 
 // init brings the state machine into the InitSigning phase. It is not callable
 // by the user since the Client initializes the channel controller.
+// The state machine is not locked as this function is expected to be called
+// during the initialization phase of the channel controller.
 func (c *Channel) init(initBals *channel.Allocation, initData channel.Data) error {
-	c.machMtx.Lock()
-	defer c.machMtx.Unlock()
 	return c.machine.Init(*initBals, initData)
 }
 
