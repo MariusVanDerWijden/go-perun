@@ -113,7 +113,6 @@ type channelConn struct {
 	b         *peer.Broadcaster
 	r         *peer.Relay
 	upReqRecv *peer.Receiver
-	upResRecv *peer.Receiver
 	peerIdx   map[*peer.Peer]channel.Index
 
 	log log.Logger
@@ -151,35 +150,36 @@ func newChannelConn(id channel.ID, peers []*peer.Peer, idx channel.Index) (*chan
 		}
 	}
 
-	upReqRecv, upResRecv := peer.NewReceiver(), peer.NewReceiver()
+	upReqRecv := peer.NewReceiver()
 	if err := relay.Subscribe(upReqRecv, func(m wire.Msg) bool {
 		return m.Type() == wire.ChannelUpdate
 	}); err != nil {
 		return nil, errors.WithMessagef(err, "subscribing update request receiver")
-	}
-	if err := relay.Subscribe(upResRecv, func(m wire.Msg) bool {
-		return (m.Type() == wire.ChannelUpdateAcc) ||
-			(m.Type() == wire.ChannelUpdateRej)
-	}); err != nil {
-		return nil, errors.WithMessagef(err, "subscribing update response receiver")
 	}
 
 	return &channelConn{
 		b:         peer.NewBroadcaster(peers),
 		r:         relay,
 		upReqRecv: upReqRecv,
-		upResRecv: upResRecv,
 		peerIdx:   peerIdx,
 		log:       log.WithField("channel", id),
 	}, nil
 }
 
+func (c *channelConn) Close() error {
+	err := c.r.Close()
+	if rerr := c.upReqRecv.Close(); err != nil && rerr != nil {
+		err = rerr
+	}
+	return err
+}
+
 // send broadcasts the message to all channel participants
-func (c *channelConn) send(ctx context.Context, msg wire.Msg) error {
+func (c *channelConn) Send(ctx context.Context, msg wire.Msg) error {
 	return c.b.Send(ctx, msg)
 }
 
-func (c *channelConn) nextUpdateReq(ctx context.Context) (channel.Index, *msgChannelUpdate) {
+func (c *channelConn) NextUpdateReq(ctx context.Context) (channel.Index, *msgChannelUpdate) {
 	peer, msg := c.upReqRecv.Next(ctx)
 	idx, ok := c.peerIdx[peer]
 	if !ok {
@@ -188,22 +188,45 @@ func (c *channelConn) nextUpdateReq(ctx context.Context) (channel.Index, *msgCha
 	return idx, msg.(*msgChannelUpdate) // safe by the predicate
 }
 
-func (c *channelConn) nextUpdateRes(ctx context.Context) (channel.Index, ChannelMsg) {
-	peer, msg := c.upResRecv.Next(ctx)
-	idx, ok := c.peerIdx[peer]
-	if !ok {
-		c.log.Panicf("channel connection received message from unknown peer %v", peer)
+// newUpdateResRecv creates a new update response receiver for the given version.
+// The receiver should be closed after all exptected responses are received.
+// The receiver is also closed when the channel connection is closed.
+func (c *channelConn) NewUpdateResRecv(version uint64) (*updateResRecv, error) {
+	recv := peer.NewReceiver()
+	if err := c.r.Subscribe(recv, func(m wire.Msg) bool {
+		resMsg, ok := m.(channelUpdateResMsg)
+		if !ok {
+			return false
+		}
+		return resMsg.Ver() == version
+	}); err != nil {
+		return nil, errors.WithMessagef(err, "subscribing update response receiver")
 	}
-	return idx, msg.(ChannelMsg) // safe by the predicate
+
+	resRecv := &updateResRecv{
+		r:       recv,
+		peerIdx: c.peerIdx,
+		log:     c.log.WithField("version", version),
+	}
+	c.r.OnClose(func() { resRecv.Close() })
+	return resRecv, nil
 }
 
-func (c *channelConn) close() error {
-	err := c.r.Close()
-	if rerr := c.upReqRecv.Close(); err != nil && rerr != nil {
-		err = rerr
+type updateResRecv struct {
+	r       *peer.Receiver
+	peerIdx map[*peer.Peer]channel.Index
+	log     log.Logger
+}
+
+func (r *updateResRecv) Next(ctx context.Context) (channel.Index, channelUpdateResMsg) {
+	peer, msg := r.r.Next(ctx)
+	idx, ok := r.peerIdx[peer]
+	if !ok {
+		r.log.Panicf("channel connection received message from unknown peer %v", peer)
 	}
-	if rerr := c.upResRecv.Close(); err != nil && rerr != nil {
-		err = rerr
-	}
-	return err
+	return idx, msg.(channelUpdateResMsg) // safe by the predicate
+}
+
+func (r *updateResRecv) Close() error {
+	return r.r.Close()
 }
