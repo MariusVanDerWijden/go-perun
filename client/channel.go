@@ -68,6 +68,9 @@ func (c *Channel) init(initBals *channel.Allocation, initData channel.Data) erro
 	return c.machine.Init(*initBals, initData)
 }
 
+// initExchangeSigsAndEnable exchanges signatures on the initial state.
+// The state machine is not locked as this function is expected to be called
+// during the initialization phase of the channel controller.
 func (c *Channel) initExchangeSigsAndEnable(ctx context.Context) error {
 	sig, err := c.machine.Sig()
 	if err != nil {
