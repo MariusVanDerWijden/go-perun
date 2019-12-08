@@ -320,6 +320,7 @@ func (c *Client) setupChannel(
 	if err := ch.init(prop.InitBals, prop.InitData); err != nil {
 		return ch, errors.WithMessage(err, "setting initial bals and data")
 	}
+
 	if err := ch.initExchangeSigsAndEnable(ctx); err != nil {
 		return ch, errors.WithMessage(err, "exchanging initial sigs and enabling state")
 	}
@@ -338,7 +339,5 @@ func (c *Client) setupChannel(
 		return ch, errors.WithMessage(err, "error while funding channel")
 	}
 
-	ch.machine.SetFunded()
-
-	return ch, nil
+	return ch, ch.machine.SetFunded()
 }
