@@ -13,15 +13,12 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
-	//"perun.network/go-perun/channel"
 	"perun.network/go-perun/channel"
 	channeltest "perun.network/go-perun/channel/test"
 	"perun.network/go-perun/client"
 	"perun.network/go-perun/log"
 	wallettest "perun.network/go-perun/wallet/test"
-	//"perun.network/go-perun/peer"
 )
 
 type Alice struct {
@@ -45,10 +42,8 @@ func NewAlice(setup RoleSetup) *Alice {
 }
 
 func (r *Alice) Execute(t *testing.T, cfg ExecConfig) {
-	//go func() {
-	//r.log.Info("Alice: starting peer listener")
-	//r.Listen(r.setup.Listener)
-	//}()
+	assert := assert.New(t)
+	// We don't start the proposal listener because Alice only receives proposals
 
 	initBals := &channel.Allocation{
 		Assets: []channel.Asset{channeltest.NewRandomAsset(r.rng)},
@@ -75,31 +70,43 @@ func (r *Alice) Execute(t *testing.T, cfg ExecConfig) {
 		defer cancel()
 		ch, err = r.ProposeChannel(ctx, prop)
 	}()
-	require.NoError(t, err)
-	require.NotNil(t, ch)
+	assert.NoError(err)
+	assert.NotNil(ch)
+	if err != nil {
+		return
+	}
 	r.log.Info("New Channel opened: %v", ch)
 	idx := ch.Idx()
 
 	// 1st Alice receives some updates from Bob
 	upHandler := newAcceptAllUpHandler(r.log, r.timeout)
-	t.Run("Alice: Channel(w/Bob) update request listener", func(t *testing.T) {
-		t.Parallel()
+	listenUpDone := make(chan struct{})
+	go func() {
+		defer close(listenUpDone)
+		r.log.Info("Starting update listener")
 		ch.ListenUpdates(upHandler)
-	})
+		r.log.Debug("Update listener returned.")
+	}()
+	defer func() {
+		r.log.Debug("Waiting for update listener to return...")
+		<-listenUpDone
+	}()
 
 	for i := 0; i < cfg.NumUpdatesBob; i++ {
 		var err error
 		select {
 		case err = <-upHandler.err:
+			r.log.Infof("Received update %d", i)
 		case <-time.After(r.timeout):
 			t.Fatal("expected incoming channel updates from Bob")
 		}
-		assert.NoError(t, err)
+		assert.NoError(err)
 	}
 
 	// 2nd Alice sends some updates to Bob
 	for i := 0; i < cfg.NumUpdatesAlice; i++ {
 		func() {
+			r.log.Infof("Sending update %d", i)
 			ctx, cancel := context.WithTimeout(context.Background(), r.timeout)
 			defer cancel()
 			state := ch.State().Clone()
@@ -108,7 +115,11 @@ func (r *Alice) Execute(t *testing.T, cfg ExecConfig) {
 				State:    state,
 				ActorIdx: idx,
 			})
-			assert.NoError(t, err)
+			assert.NoError(err)
 		}()
 	}
+
+	// finally, close the channel and client
+	assert.NoError(ch.Close())
+	assert.NoError(r.Close())
 }

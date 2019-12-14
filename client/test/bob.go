@@ -8,16 +8,14 @@ package test // import "perun.network/go-perun/client/test"
 import (
 	"context"
 	"math/rand"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
-	//"perun.network/go-perun/channel"
 	"perun.network/go-perun/client"
 	"perun.network/go-perun/log"
-	//"perun.network/go-perun/peer"
 )
 
 type Bob struct {
@@ -41,9 +39,15 @@ func NewBob(setup RoleSetup) *Bob {
 }
 
 func (r *Bob) Execute(t *testing.T, cfg ExecConfig) {
+	assert := assert.New(t)
+	var listenWg sync.WaitGroup
+
+	listenWg.Add(2)
 	go func() {
-		r.log.Info("Bob: starting peer listener")
+		defer listenWg.Done()
+		r.log.Info("Starting peer listener.")
 		r.Listen(r.setup.Listener)
+		r.log.Debug("Peer listener returned.")
 	}()
 
 	// receive one accepted proposal
@@ -53,15 +57,31 @@ func (r *Bob) Execute(t *testing.T, cfg ExecConfig) {
 	case <-time.After(r.timeout):
 		t.Fatal("expected incoming channel proposal from Alice")
 	}
-	require.NoError(t, chErr.err)
-	require.NotNil(t, chErr.channel)
+	assert.NoError(chErr.err)
+	assert.NotNil(chErr.channel)
+	if chErr.err != nil {
+		return
+	}
 	ch := chErr.channel
 	r.log.Info("New Channel opened: %v", ch)
 	idx := ch.Idx()
 
+	upHandler := newAcceptAllUpHandler(r.log, r.timeout)
+	go func() {
+		defer listenWg.Done()
+		r.log.Info("Starting update listener.")
+		ch.ListenUpdates(upHandler)
+		r.log.Debug("Update listener returned.")
+	}()
+	defer func() {
+		r.log.Debug("Waiting for listeners to return...")
+		listenWg.Wait()
+	}()
+
 	// 1st Bob sends some updates to Alice
 	for i := 0; i < cfg.NumUpdatesBob; i++ {
 		func() {
+			r.log.Infof("Sending update %d", i)
 			ctx, cancel := context.WithTimeout(context.Background(), r.timeout)
 			defer cancel()
 			state := ch.State().Clone()
@@ -70,24 +90,24 @@ func (r *Bob) Execute(t *testing.T, cfg ExecConfig) {
 				State:    state,
 				ActorIdx: idx,
 			})
-			assert.NoError(t, err)
+			assert.NoError(err)
 		}()
 	}
 
 	// 2nd Bob receives some updates from Alice
-	upHandler := newAcceptAllUpHandler(r.log, r.timeout)
-	t.Run("Bob: Channel(w/Alice) update request listener", func(t *testing.T) {
-		t.Parallel()
-		ch.ListenUpdates(upHandler)
-	})
-
 	for i := 0; i < cfg.NumUpdatesAlice; i++ {
 		var err error
 		select {
 		case err = <-upHandler.err:
+			r.log.Infof("Received update %d", i)
 		case <-time.After(r.timeout):
 			t.Fatal("expected incoming channel updates from Alice")
 		}
-		assert.NoError(t, err)
+		assert.NoError(err)
 	}
+
+	time.Sleep(100 * time.Millisecond) // wait for channel updates to finish
+	// finally, close the channel and client
+	assert.NoError(ch.Close())
+	assert.NoError(r.Close())
 }
