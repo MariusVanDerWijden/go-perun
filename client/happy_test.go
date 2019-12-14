@@ -34,7 +34,7 @@ func init() {
 	log.Set(plogrus.FromLogrus(logger))
 }
 
-var defaultTimeout = 10000 * time.Second
+var defaultTimeout = 1 * time.Second
 
 func TestHappyAliceBob(t *testing.T) {
 	log.Info("Starting happy test")
