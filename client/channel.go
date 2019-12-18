@@ -125,8 +125,8 @@ func (c *Channel) initExchangeSigsAndEnable(ctx context.Context) error {
 	acc, ok := cm.(*msgChannelUpdateAcc)
 	if !ok {
 		return errors.Errorf(
-			"received unexpected message of type (%T) from peer: %v",
-			cm, cm)
+			"received unexpected message of type (%T) from peer[%d]: %v",
+			cm, pidx, cm)
 	}
 
 	if err := c.machine.AddSig(pidx, acc.Sig); err != nil {
