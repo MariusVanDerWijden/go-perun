@@ -48,7 +48,7 @@ func newChannel(
 		return nil, errors.WithMessagef(err, "setting up channel connection")
 	}
 
-	logger := log.WithFields(log.Fields{"channel": params.ID, "id": acc.Address()})
+	logger := log.WithFields(log.Fields{"channel": params.ID(), "id": acc.Address()})
 	conn.SetLogger(logger)
 	return &Channel{
 		log:     logger,
