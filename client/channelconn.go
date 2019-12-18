@@ -52,10 +52,7 @@ func newChannelConn(id channel.ID, peers []*peer.Peer, idx channel.Index) (_ *ch
 
 	forThisChannel := func(m wire.Msg) bool {
 		cm, ok := m.(ChannelMsg)
-		if !ok {
-			return false
-		}
-		return cm.ID() == id
+		return ok && cm.ID() == id
 	}
 	peerIdx := make(map[*peer.Peer]channel.Index)
 	for i, peer := range peers {
@@ -130,10 +127,7 @@ func (c *channelConn) NewUpdateResRecv(version uint64) (*channelMsgRecv, error) 
 	recv := peer.NewReceiver()
 	if err := c.r.Subscribe(recv, func(m wire.Msg) bool {
 		resMsg, ok := m.(channelUpdateResMsg)
-		if !ok {
-			return false
-		}
-		return resMsg.Ver() == version
+		return ok && resMsg.Ver() == version
 	}); err != nil {
 		return nil, errors.WithMessagef(err, "subscribing update response receiver")
 	}
