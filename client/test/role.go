@@ -1,6 +1,7 @@
-// Copyright (c) 2019 The Perun Authors. All rights reserved.
-// This file is part of go-perun. Use of this source code is governed by a
-// MIT-style license that can be found in the LICENSE file.
+// Copyright (c) 2019 Chair of Applied Cryptography, Technische Universität
+// Darmstadt, Germany. All rights reserved. This file is part of go-perun. Use
+// of this source code is governed by a MIT-style license that can be found in
+// the LICENSE file.
 
 // Package test contains helpers for testing the client
 package test // import "perun.network/go-perun/client/test"
@@ -12,8 +13,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/stretchr/testify/assert"
 
 	"perun.network/go-perun/channel"
 	"perun.network/go-perun/client"
@@ -90,41 +89,6 @@ func (r *Role) waitClose() {
 	}
 }
 
-func (r *Role) sendUpdate(ch *client.Channel, update func(*channel.State), desc string) {
-	r.log.Debugf("Sending update: %s", desc)
-	ctx, cancel := context.WithTimeout(context.Background(), r.timeout)
-	defer cancel()
-
-	state := ch.State().Clone()
-	update(state)
-	state.Version++
-
-	err := ch.Update(ctx, client.ChannelUpdate{
-		State:    state,
-		ActorIdx: ch.Idx(),
-	})
-	r.log.Infof("Sent update: %s, err: %v", desc, err)
-	assert.NoError(r.t, err)
-}
-
-func (r *Role) recvUpdate(upHandler *acceptAllUpHandler, desc string) {
-	r.log.Debugf("Receiving update: %s", desc)
-	var err error
-	select {
-	case err = <-upHandler.err:
-		r.log.Infof("Received update: %s, err: %v", desc, err)
-	case <-time.After(r.timeout):
-		r.t.Error("timeout: expected incoming channel update")
-	}
-	assert.NoError(r.t, err)
-}
-
-func (r *Role) settleChan(ch *client.Channel) {
-	ctx, cancel := context.WithTimeout(context.Background(), r.timeout)
-	defer cancel()
-	assert.NoError(r.t, ch.Settle(ctx))
-}
-
 type (
 	// acceptAllPropHandler is a channel proposal handler that accepts all channel
 	// requests. It generates a random account for each channel.
@@ -162,34 +126,4 @@ func (h *acceptAllPropHandler) Handle(req *client.ChannelProposalReq, res *clien
 		Participant: wallettest.NewRandomAccount(h.rng),
 	})
 	h.chans <- channelAndError{ch, err}
-}
-
-type acceptAllUpHandler struct {
-	log     log.Logger
-	timeout time.Duration
-	err     chan error
-}
-
-func newAcceptAllUpHandler(logger log.Logger, timeout time.Duration) *acceptAllUpHandler {
-	return &acceptAllUpHandler{
-		log:     logger,
-		timeout: timeout,
-		err:     make(chan error),
-	}
-}
-
-func (h *acceptAllUpHandler) Handle(up client.ChannelUpdate, res *client.UpdateResponder) {
-	h.log.Infof("Accepting channel update: %v", up)
-	ctx, cancel := context.WithTimeout(context.Background(), h.timeout)
-	defer cancel()
-
-	h.err <- res.Accept(ctx)
-}
-
-func transferBal(state *channel.State, ourIdx channel.Index, amount *big.Int) {
-	otherIdx := ourIdx ^ 1
-	ourBal := state.Allocation.OfParts[ourIdx][0]
-	otherBal := state.Allocation.OfParts[otherIdx][0]
-	otherBal.Add(otherBal, amount)
-	ourBal.Add(ourBal, amount.Neg(amount))
 }

@@ -1,8 +1,8 @@
-// Copyright (c) 2019 The Perun Authors. All rights reserved.
-// This file is part of go-perun. Use of this source code is governed by a
-// MIT-style license that can be found in the LICENSE file.
+// Copyright (c) 2019 Chair of Applied Cryptography, Technische Universität
+// Darmstadt, Germany. All rights reserved. This file is part of go-perun. Use
+// of this source code is governed by a MIT-style license that can be found in
+// the LICENSE file.
 
-// Package test contains helpers for testing the client
 package test // import "perun.network/go-perun/client/test"
 
 import (
@@ -59,29 +59,26 @@ func (r *Alice) Execute(cfg ExecConfig) {
 		PeerAddrs:         cfg.PeerAddrs,
 	}
 
-	var ch *client.Channel
-	var err error
 	// send channel proposal
-	func() {
+	_ch, err := func() (*client.Channel, error) {
 		ctx, cancel := context.WithTimeout(context.Background(), r.timeout)
 		defer cancel()
-		ch, err = r.ProposeChannel(ctx, prop)
+		return r.ProposeChannel(ctx, prop)
 	}()
 	assert.NoError(err)
-	assert.NotNil(ch)
+	assert.NotNil(_ch)
 	if err != nil {
 		return
 	}
-	r.log.Info("New Channel opened: %v", ch)
-	idx := ch.Idx()
+	ch := newPaymentChannel(_ch, &r.Role)
+	r.log.Info("New Channel opened: %v", ch.Channel)
 
 	// start update handler
-	upHandler := newAcceptAllUpHandler(r.log, r.timeout)
 	listenUpDone := make(chan struct{})
 	go func() {
 		defer close(listenUpDone)
 		r.log.Info("Starting update listener")
-		ch.ListenUpdates(upHandler)
+		ch.ListenUpdates()
 		r.log.Debug("Update listener returned.")
 	}()
 	defer func() {
@@ -91,24 +88,19 @@ func (r *Alice) Execute(cfg ExecConfig) {
 
 	// 1st Alice receives some updates from Bob
 	for i := 0; i < cfg.NumUpdatesBob; i++ {
-		r.recvUpdate(upHandler, fmt.Sprintf("#%d", i))
+		ch.recvTransfer(cfg.TxAmountBob, fmt.Sprintf("Bob#%d", i))
 	}
 
 	// 2nd Alice sends some updates to Bob
 	for i := 0; i < cfg.NumUpdatesAlice; i++ {
-		r.sendUpdate(ch,
-			func(state *channel.State) {
-				transferBal(state, idx, cfg.TxAmountAlice)
-			},
-			fmt.Sprintf("#%d", i))
+		ch.sendTransfer(cfg.TxAmountAlice, fmt.Sprintf("Alice#%d", i))
 	}
 
 	// 3rd Alice receives final state from Bob
-	r.recvUpdate(upHandler, "final")
-	assert.True(ch.State().IsFinal)
+	ch.recvFinal()
 
 	// 4th Settle channel
-	r.settleChan(ch)
+	ch.settleChan()
 
 	// finally, close the channel and client
 	r.waitClose()
